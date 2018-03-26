@@ -21,11 +21,10 @@ func main() {
 
 	log.Printf("connecting to url(%s)", *u)
 
-	tm := time.NewTicker(time.Second * 3)
+	tm := time.NewTicker(time.Second * 5)
 	defer tm.Stop()
 	// In case sometimes server may be down, client should
 	// keep trying at a reasonable rate
-
 	var conn *websocket.Conn
 	for {
 		select {
@@ -33,9 +32,10 @@ func main() {
 			c, _, err := websocket.DefaultDialer.Dial(*u, nil)
 			if err == nil {
 				conn = c
+				tm.Stop()
 				break
 			} else {
-				log.Println("Failed to connect, wait 3 seconds and try again : ", err)
+				log.Println("Failed to connect, wait 5 seconds and try again : ", err)
 			}
 		case <-interrupt:
 			log.Println("Interrupted by user, exit.")
