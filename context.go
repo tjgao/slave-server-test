@@ -35,8 +35,8 @@ func (w *WorkContext) serve() {
 	OUTSIDE_LOOP:
 		for {
 			select {
-			case <-w.dataOut:
-				// todo
+			case text := <-w.dataOut:
+				w.Conn.WriteMessage(websocket.BinaryMessage, []byte(text))
 			case <-w.Exiting:
 				break OUTSIDE_LOOP
 			}
@@ -96,20 +96,32 @@ func (w *WorkContext) onTaskRequest(req *Task) {
 		tr := &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		}
-		var result string
+		var result TaskResult
+		result.TransactionID = req.TransactionID
 		client := &http.Client{Transport: tr}
 		resp, err := client.Get(req.TargetURL)
 		if err != nil {
 			log.Println("Failed to access url: ", req.TargetURL)
+			result.Code = FailedToAccessURL
+			result.Description = "Failed to access url: " + req.TargetURL
 		} else {
 			b, err := ioutil.ReadAll(resp.Body)
 			resp.Body.Close()
 			if err != nil {
 				log.Printf("Failed to read data from http response: %v\n", err)
+				result.Code = FailedToReadFromResponse
+				result.Description = "Failed to read from http response"
 			} else {
-				result = string(b)
-				w.dataOut <- result
+				result.Result = string(b)
+				result.Code = RetrieveDataSuccessfully
+				result.Description = "OK"
 			}
+		}
+		bs, err := json.Marshal(result)
+		if err != nil {
+			log.Println("Serious problem, json marshal operation failed")
+		} else {
+			w.dataOut <- string(bs)
 		}
 	}()
 }

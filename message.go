@@ -10,6 +10,12 @@ const (
 	LeaveRespType
 )
 
+const (
+	RetrieveDataSuccessfully int = iota
+	FailedToAccessURL
+	FailedToReadFromResponse
+)
+
 // Slave expects messages like this and then it can parse body field according to the specified id
 type Message struct {
 	ID   MessageType `json:"id"`
