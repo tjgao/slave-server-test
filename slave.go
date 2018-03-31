@@ -16,7 +16,7 @@ func main() {
 	log.SetFlags(0)
 
 	if len(os.Args) < 2 {
-		log.Fatal("A valid uri is required!")
+		log.Fatal("A valid url is required!")
 	}
 	u := os.Args[1]
 
@@ -42,7 +42,6 @@ WAITLOOP:
 			c, _, err := websocket.DefaultDialer.Dial(u, nil)
 			if err == nil {
 				conn = c
-				tm.Stop()
 				log.Println("Connected!")
 				break WAITLOOP
 			} else {
@@ -54,44 +53,20 @@ WAITLOOP:
 		}
 	}
 
-	done := make(chan struct{})
+	ctx := newContext(conn)
+	defer ctx.close()
 
-	go func() {
-		defer conn.Close()
-		defer close(done)
-		for {
-			_, message, err := conn.ReadMessage()
-			if err != nil {
-				log.Println("read:", err)
-				return
-			}
-			log.Printf("recv: %s", message)
-		}
-	}()
+	go ctx.serve()
 
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case t := <-ticker.C:
-			err := conn.WriteMessage(websocket.TextMessage, []byte(t.String()))
-			if err != nil {
-				log.Println("write:", err)
-				return
-			}
-		case <-interrupt:
-			log.Println("interrupt")
-			err := conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-			if err != nil {
-				log.Println("write close:", err)
-				return
-			}
-			select {
-			case <-done:
-			case <-time.After(time.Second):
-			}
-			conn.Close()
-			return
-		}
+	// main goroutine is waiting here until the user chooses to exit
+	select {
+	case <-interrupt:
+		log.Println("Interrupted by user!")
+		close(ctx.Exiting)
+		break
 	}
+
+	// wait for all tasks being done
+	log.Println("wait a few seconds to clean up ...")
+	ctx.waitTasksDone(time.Second * 5)
 }
