@@ -13,25 +13,25 @@ import (
 )
 
 type WorkContext struct {
-	Conn         *websocket.Conn
-	RunningTasks *sync.WaitGroup
+	conn         *websocket.Conn
+	runningTasks *sync.WaitGroup
 	Exiting      chan struct{}
 	dataOut      chan []byte
-	DisableRead  int32 // It is always accessed atomically
+	disable      int32 // It is always accessed atomically
 }
 
 func newContext(conn *websocket.Conn) *WorkContext {
 	var wg sync.WaitGroup
 	return &WorkContext{
-		Conn:         conn,
-		RunningTasks: &wg,
+		conn:         conn,
+		runningTasks: &wg,
 		Exiting:      make(chan struct{}),
 		dataOut:      make(chan []byte),
 	}
 }
 
 func (w *WorkContext) disableRead() {
-	atomic.StoreInt32(&w.DisableRead, 1)
+	atomic.StoreInt32(&w.disable, 1)
 }
 
 func (w *WorkContext) serve() {
@@ -41,7 +41,7 @@ func (w *WorkContext) serve() {
 		for {
 			select {
 			case text := <-w.dataOut:
-				w.Conn.WriteMessage(websocket.BinaryMessage, text)
+				w.conn.WriteMessage(websocket.BinaryMessage, text)
 			case <-w.Exiting:
 				break OUTSIDE_LOOP
 			}
@@ -49,8 +49,8 @@ func (w *WorkContext) serve() {
 	}()
 
 	for {
-		t, buf, err := w.Conn.ReadMessage()
-		if atomic.LoadInt32(&(w.DisableRead)) != 0 {
+		t, buf, err := w.conn.ReadMessage()
+		if atomic.LoadInt32(&(w.disable)) != 0 {
 			break
 		}
 
@@ -100,8 +100,8 @@ func (w *WorkContext) onMessage(msg *Message) {
 func (w *WorkContext) onTaskRequest(req *Task) {
 	// start a goroutine to grab the data
 	go func() {
-		w.RunningTasks.Add(1)
-		defer w.RunningTasks.Done()
+		w.runningTasks.Add(1)
+		defer w.runningTasks.Done()
 		tr := &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		}
@@ -147,7 +147,7 @@ func (w *WorkContext) waitTasksDone(t time.Duration) bool {
 	c := make(chan struct{})
 	go func() {
 		defer close(c)
-		w.RunningTasks.Wait()
+		w.runningTasks.Wait()
 	}()
 
 	select {
@@ -159,5 +159,5 @@ func (w *WorkContext) waitTasksDone(t time.Duration) bool {
 }
 
 func (w *WorkContext) close() {
-	w.Conn.Close()
+	w.conn.Close()
 }
