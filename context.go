@@ -1,8 +1,8 @@
 package main
 
 import (
+	"sync/atomic"
 	"crypto/tls"
-	"encoding/json"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -16,7 +16,8 @@ type WorkContext struct {
 	Conn         *websocket.Conn
 	RunningTasks *sync.WaitGroup
 	Exiting      chan struct{}
-	dataOut      chan string
+	dataOut      chan []byte
+	DisableRead  int32 // It is always accessed atomically
 }
 
 func newContext(conn *websocket.Conn) *WorkContext {
@@ -25,8 +26,12 @@ func newContext(conn *websocket.Conn) *WorkContext {
 		Conn:         conn,
 		RunningTasks: &wg,
 		Exiting:      make(chan struct{}),
-		dataOut:      make(chan string),
+		dataOut:      make(chan []byte),
 	}
+}
+
+func (w *WorkContext) disableRead() {
+	atomic.StoreInt32(&w.DisableRead, 1)
 }
 
 func (w *WorkContext) serve() {
@@ -36,29 +41,33 @@ func (w *WorkContext) serve() {
 		for {
 			select {
 			case text := <-w.dataOut:
-				w.Conn.WriteMessage(websocket.BinaryMessage, []byte(text))
+				w.Conn.WriteMessage(websocket.BinaryMessage, text)
 			case <-w.Exiting:
 				break OUTSIDE_LOOP
 			}
 		}
 	}()
 
-	w.Conn.SetReadDeadline(time.Now().Add(time.Second * 2))
-OUTSIDE_LOOP2:
 	for {
-		message := Message{}
-		err := w.Conn.ReadJSON(&message)
-		if err != nil {
-			log.Println("read error: ", err)
+		t, buf, err := w.Conn.ReadMessage()
+		if atomic.LoadInt32(&(w.DisableRead)) != 0 {
 			break
-		} else {
-			w.onMessage(&message)
 		}
 
-		select {
-		case <-w.Exiting:
-			break OUTSIDE_LOOP2
-		default:
+		if t != websocket.BinaryMessage {
+			log.Println("read error: recv text message while binaries are expected")
+			continue
+		} else if err != nil {
+			log.Println("read error: ", err)
+			break
+		}
+
+		message := Message{}
+		if err := Decode(buf, &message); err != nil {
+			log.Println("failed to decode message: ", err)
+			continue
+		} else {
+			w.onMessage(&message)
 		}
 	}
 }
@@ -67,9 +76,9 @@ func (w *WorkContext) onMessage(msg *Message) {
 	switch msg.ID {
 	case RegisterRespType:
 		var obj RegisterResp
-		err := json.Unmarshal([]byte(msg.Body), &obj)
+		err := DecodeRegisterResp(msg.Body, &obj)
 		if err != nil {
-			log.Println("invalid json data: ", msg.Body)
+			log.Println("invalid RegisterResp data: ", msg.Body)
 			break
 		}
 		if !w.onRegisterResp(&obj) {
@@ -77,9 +86,9 @@ func (w *WorkContext) onMessage(msg *Message) {
 		}
 	case TaskRequestType:
 		var obj Task
-		err := json.Unmarshal([]byte(msg.Body), &obj)
+		err := DecodeTask(msg.Body, &obj)
 		if err != nil {
-			log.Println("invalid json data: ", msg.Body)
+			log.Println("invalid TaskReq data: ", msg.Body)
 			break
 		}
 		w.onTaskRequest(&obj)
@@ -112,16 +121,16 @@ func (w *WorkContext) onTaskRequest(req *Task) {
 				result.Code = FailedToReadFromResponse
 				result.Description = "Failed to read from http response"
 			} else {
-				result.Result = string(b)
+				result.Result = b
 				result.Code = RetrieveDataSuccessfully
 				result.Description = "OK"
 			}
 		}
-		bs, err := json.Marshal(result)
+		bs, err := EncodeTaskResult(&result)
 		if err != nil {
 			log.Println("Serious problem, json marshal operation failed")
 		} else {
-			w.dataOut <- string(bs)
+			w.dataOut <- bs
 		}
 	}()
 }
