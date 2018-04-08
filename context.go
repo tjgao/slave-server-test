@@ -1,12 +1,12 @@
 package main
 
 import (
-	"sync/atomic"
 	"crypto/tls"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -91,13 +91,13 @@ func (w *WorkContext) onMessage(msg *Message) {
 			log.Println("invalid TaskReq data: ", msg.Body)
 			break
 		}
-		w.onTaskRequest(&obj)
+		w.onTaskRequest(&obj, msg.TransID)
 	default:
 		log.Printf("Unknown message: %d, %s", msg.ID, msg.Body)
 	}
 }
 
-func (w *WorkContext) onTaskRequest(req *Task) {
+func (w *WorkContext) onTaskRequest(req *Task, transID int64) {
 	// start a goroutine to grab the data
 	go func() {
 		w.runningTasks.Add(1)
@@ -106,7 +106,6 @@ func (w *WorkContext) onTaskRequest(req *Task) {
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		}
 		var result TaskResult
-		result.TransactionID = req.TransactionID
 		client := &http.Client{Transport: tr}
 		resp, err := client.Get(req.TargetURL)
 		if err != nil {
@@ -128,9 +127,20 @@ func (w *WorkContext) onTaskRequest(req *Task) {
 		}
 		bs, err := EncodeTaskResult(&result)
 		if err != nil {
-			log.Println("Serious problem, json marshal operation failed")
+			panic("Serious problem, json marshal operation failed")
 		} else {
-			w.dataOut <- bs
+			msg := Message{
+				ID:      TaskResultType,
+				TransID: transID,
+				Body:    bs,
+			}
+
+			bytes, err := Encode(&msg)
+			if err != nil {
+				panic("Serious problem, json marshal operation failed")
+			} else {
+				w.dataOut <- bytes
+			}
 		}
 	}()
 }
