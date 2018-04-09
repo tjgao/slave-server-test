@@ -63,6 +63,7 @@ WAITLOOP:
 	case <-interrupt:
 		log.Println("Interrupted by user!")
 		ctx.disableRead()
+		ctx.close()
 		close(ctx.Exiting)
 		break
 	}

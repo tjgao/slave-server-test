@@ -41,7 +41,16 @@ func (w *WorkContext) serve() {
 		for {
 			select {
 			case text := <-w.dataOut:
-				w.conn.WriteMessage(websocket.BinaryMessage, text)
+				if text != nil {
+					w.conn.WriteMessage(websocket.BinaryMessage, text)
+				} else {
+					w.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+					select {
+					case <-time.After(time.Second):
+					}
+
+					w.conn.Close()
+				}
 			case <-w.Exiting:
 				break OUTSIDE_LOOP
 			}
@@ -95,6 +104,12 @@ func (w *WorkContext) onMessage(msg *Message) {
 	default:
 		log.Printf("Unknown message: %d, %s", msg.ID, msg.Body)
 	}
+}
+
+func (w *WorkContext) close() {
+	go func() {
+		w.dataOut <- nil
+	}()
 }
 
 func (w *WorkContext) onTaskRequest(req *Task, transID int64) {
@@ -166,8 +181,4 @@ func (w *WorkContext) waitTasksDone(t time.Duration) bool {
 	case <-time.After(t):
 		return false
 	}
-}
-
-func (w *WorkContext) close() {
-	w.conn.Close()
 }
