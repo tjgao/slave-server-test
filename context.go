@@ -63,12 +63,12 @@ func (w *WorkContext) serve() {
 			break
 		}
 
-		if t != websocket.BinaryMessage {
-			log.Println("read error: recv text message while binaries are expected")
-			continue
-		} else if err != nil {
+		if err != nil {
 			log.Println("read error: ", err)
 			break
+		} else if t != websocket.BinaryMessage {
+			log.Println("read error: recv text message while binaries are expected")
+			continue
 		}
 
 		message := Message{}
