@@ -1,7 +1,8 @@
 package main
 
 import (
-	"log"
+	"flag"
+	log "github.com/sirupsen/logrus"
 	"net/url"
 	"os"
 	"os/signal"
@@ -11,18 +12,31 @@ import (
 )
 
 func main() {
-	//	u := flag.String("u", "", "The url for registration")
-	//	flag.Parse()
-	log.SetFlags(0)
+	logLevelTable := map[string]log.Level{
+		"panic": log.PanicLevel,
+		"error": log.ErrorLevel,
+		"warn":  log.WarnLevel,
+		"info":  log.InfoLevel,
+		"debug": log.DebugLevel,
+	}
 
-	if len(os.Args) < 2 {
+	u := flag.String("u", "", "The url for registration")
+	logLevel := flag.String("l", "info", "specify log level, available levels are: panic, error, warn, info and debug")
+	flag.Parse()
+
+	if *u == "" {
 		log.Fatal("A valid url is required!")
 	}
-	u := os.Args[1]
 
-	_, err := url.ParseRequestURI(u)
+	_, err := url.ParseRequestURI(*u)
 	if err != nil {
 		log.Fatal("Invalid url")
+	}
+
+	if level, ok := logLevelTable[*logLevel]; ok {
+		log.SetLevel(level)
+	} else {
+		log.Warn("unrecognized log level specified, use warn level instead")
 	}
 
 	interrupt := make(chan os.Signal, 1)
@@ -34,21 +48,21 @@ func main() {
 	// In case sometimes server may be down, client should
 	// keep trying at a reasonable rate
 	var conn *websocket.Conn
-	log.Printf("connecting to url(%s)", u)
+	log.Info("connecting to url: ", *u)
 WAITLOOP:
 	for {
 		select {
 		case <-tm.C:
-			c, _, err := websocket.DefaultDialer.Dial(u, nil)
+			c, _, err := websocket.DefaultDialer.Dial(*u, nil)
 			if err == nil {
 				conn = c
-				log.Println("Connected!")
+				log.Info("Connected!")
 				break WAITLOOP
 			} else {
-				log.Println("Failed to connect, wait 5 seconds and try again : ", err)
+				log.Error("Failed to connect, wait 5 seconds and try again. ", err)
 			}
 		case <-interrupt:
-			log.Println("Interrupted by user, exit.")
+			log.Info("Interrupted by user, exit.")
 			return
 		}
 	}
@@ -61,7 +75,7 @@ WAITLOOP:
 	// main goroutine is waiting here until the user chooses to exit
 	select {
 	case <-interrupt:
-		log.Println("Interrupted by user!")
+		log.Info("Interrupted by user!")
 		ctx.disableRead()
 		ctx.close()
 		close(ctx.Exiting)
@@ -69,6 +83,6 @@ WAITLOOP:
 	}
 
 	// wait for all tasks being done
-	log.Println("wait a few seconds to clean up ...")
+	log.Info("wait a few seconds to clean up ...")
 	ctx.waitTasksDone(time.Second * 5)
 }

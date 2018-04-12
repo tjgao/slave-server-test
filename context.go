@@ -2,8 +2,8 @@ package main
 
 import (
 	"crypto/tls"
+	log "github.com/sirupsen/logrus"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -37,6 +37,7 @@ func (w *WorkContext) disableRead() {
 func (w *WorkContext) serve() {
 	// start writer goroutine
 	go func() {
+		log.Debug("Writer coroutine is running ...")
 	OUTSIDE_LOOP:
 		for {
 			select {
@@ -55,6 +56,7 @@ func (w *WorkContext) serve() {
 				break OUTSIDE_LOOP
 			}
 		}
+		log.Debug("Writer coroutine exited")
 	}()
 
 	for {
@@ -64,16 +66,16 @@ func (w *WorkContext) serve() {
 		}
 
 		if err != nil {
-			log.Println("read error: ", err)
+			log.Error("read error, ", err)
 			break
 		} else if t != websocket.BinaryMessage {
-			log.Println("read error: recv text message while binaries are expected")
+			log.Error("read error: recv text message while binaries are expected")
 			continue
 		}
 
 		message := Message{}
 		if err := Decode(buf, &message); err != nil {
-			log.Println("failed to decode message: ", err)
+			log.Error("failed to decode message: ", err)
 			continue
 		} else {
 			w.onMessage(&message)
@@ -87,7 +89,7 @@ func (w *WorkContext) onMessage(msg *Message) {
 		var obj RegisterResp
 		err := DecodeRegisterResp(msg.Body, &obj)
 		if err != nil {
-			log.Println("invalid RegisterResp data: ", msg.Body)
+			log.Error("invalid RegisterResp data: ", msg.Body)
 			break
 		}
 		if !w.onRegisterResp(&obj) {
@@ -97,12 +99,12 @@ func (w *WorkContext) onMessage(msg *Message) {
 		var obj Task
 		err := DecodeTask(msg.Body, &obj)
 		if err != nil {
-			log.Println("invalid TaskReq data: ", msg.Body)
+			log.Error("invalid TaskReq data: ", msg.Body)
 			break
 		}
 		w.onTaskRequest(&obj, msg.TransID)
 	default:
-		log.Printf("Unknown message: %d, %s", msg.ID, msg.Body)
+		log.WithFields(log.Fields{"MsgID": msg.ID}).Error("Unknown message")
 	}
 }
 
@@ -120,18 +122,20 @@ func (w *WorkContext) onTaskRequest(req *Task, transID int64) {
 		tr := &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		}
+		log.Debug("trying to retrieve data from ", req.TargetURL)
 		var result TaskResult
 		client := &http.Client{Transport: tr}
 		resp, err := client.Get(req.TargetURL)
 		if err != nil {
-			log.Println("Failed to access url: ", req.TargetURL)
+			log.Error("Failed to access url: ", req.TargetURL)
 			result.Code = FailedToAccessURL
 			result.Description = "Failed to access url: " + req.TargetURL
 		} else {
+			log.Debug("successfully grab data from remote site")
 			b, err := ioutil.ReadAll(resp.Body)
 			resp.Body.Close()
 			if err != nil {
-				log.Printf("Failed to read data from http response: %v\n", err)
+				log.Error("Failed to read data from http response, ", err)
 				result.Code = FailedToReadFromResponse
 				result.Description = "Failed to read from http response"
 			} else {
@@ -152,7 +156,7 @@ func (w *WorkContext) onTaskRequest(req *Task, transID int64) {
 
 			bytes, err := Encode(&msg)
 			if err != nil {
-				panic("Serious problem, json marshal operation failed")
+				log.Panic("Serious problem, json marshal operation failed")
 			} else {
 				w.dataOut <- bytes
 			}
@@ -162,7 +166,7 @@ func (w *WorkContext) onTaskRequest(req *Task, transID int64) {
 
 func (w *WorkContext) onRegisterResp(resp *RegisterResp) bool {
 	if resp.Code != 0 {
-		log.Println("registration rejected: ", resp.Description)
+		log.Error("registration rejected: ", resp.Description)
 		return false
 	}
 	return true
