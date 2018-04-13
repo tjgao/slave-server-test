@@ -127,7 +127,7 @@ func (w *WorkContext) onTaskRequest(req *Task, transID int64) {
 		client := &http.Client{Transport: tr}
 		resp, err := client.Get(req.TargetURL)
 		if err != nil {
-			log.Error("Failed to access url: ", req.TargetURL)
+			log.Error("Failed to access url: ", req.TargetURL, " error = ", err)
 			result.Code = FailedToAccessURL
 			result.Description = "Failed to access url: " + req.TargetURL
 		} else {
