@@ -5,6 +5,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -67,6 +68,11 @@ func (w *WorkContext) serve() {
 
 		if err != nil {
 			log.Error("read error, ", err)
+			pid := os.Getpid()
+			p, e := os.FindProcess(pid)
+			if e == nil {
+				p.Signal(os.Interrupt)
+			}
 			break
 		} else if t != websocket.BinaryMessage {
 			log.Error("read error: recv text message while binaries are expected")

@@ -75,7 +75,7 @@ WAITLOOP:
 	// main goroutine is waiting here until the user chooses to exit
 	select {
 	case <-interrupt:
-		log.Info("Interrupted by user!")
+		log.Info("Interrupted!")
 		ctx.disableRead()
 		ctx.close()
 		close(ctx.Exiting)
